@@ -133,4 +133,58 @@ MORTON KERNEL:
     funckije: expandBits, morton3D  
 
 
+Main: step by step
 
+1. CUDA Device Inicijalizacija
+cudaGetDeviceCount(&deviceCount);
+cudaSetDevice(0);
+cudaGetDeviceProperties(&prop, 0);
+
+2. Alokacija i Inicijalizacija Host Memorije
+float *h_posX = new float[N];
+
+3. Generisanje Početnih Uslova
+float angle = dist(rng) * 2.0f * M_PI;
+float r = dist(rng) * 400.0f;
+h_posX[i] = r * cosf(angle);
+h_velX[i] = -h_posY[i] * 0.01f;  // Rotaciona brzina
+
+4. Alokacija GPU Memorije
+cudaMalloc(&d_posX, N * sizeof(float));
+cudaMemcpy(d_posX, h_posX, N * sizeof(float), cudaMemcpyHostToDevice);
+
+5. Računanje Bounding Box-a
+computeBoundingBoxKernel<<<numBlocks, THREADS_PER_BLOCK>>>(...)
+
+6. Morton Kodovi
+computeMortonCodesKernel<<<...>>>(d_posX, d_posY, d_posZ, d_morton, d_indices, ...)
+
+7. Sortiranje
+sortByMortonCode(d_morton, d_indices, N);
+
+8. Konstrukcija okteta
+buildOctreeSimpleKernel<<<1, 1>>>(...);
+
+9. Centar Mase
+computeCenterOfMassKernel<<<...>>>(d_nodes, ..., totalNodes);
+
+10. Barnes-Hut Računanje Sila
+computeForceBarnesHutKernel<<<...>>>(d_posX, ..., d_accX, ..., THETA);
+
+11. Integracija
+integrateKernel<<<...>>>(d_posX, ..., d_velX, ..., d_accX, ..., DT);
+
+12. Sinhronizacija i Merenje
+cudaDeviceSynchronize();
+
+Post-Processing:
+
+1. Kopiranje Rezultata na CPU
+cudaMemcpy(h_posX, d_posX, N * sizeof(float), cudaMemcpyDeviceToHost);
+
+2. Računanje Statistike
+
+3. Čuvanje u Fajl
+
+4. Cleanup
+cudaFree(d_posX); delete[] h_posX;
