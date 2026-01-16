@@ -1,0 +1,136 @@
+KERNEL 1:
+- paralelno računa AxisAlignedBoundingBox (AABB) za sva tijela
+- shared memory za x,y i z: __shared__ float sMinX[THREADS_PER_BLOCK];
+
+FAZE:
+1. Thread Identifikacija i Inicijalizacija: int tid = threadIdx.x; int idx = blockIdx.x * blockDim.x + threadIdx.x; int stride = blockDim.x * gridDim.x;
+2. Inicijalizacija lokalnih ekstrema: float tMinX = 1e30f; 
+3. Grid-Stride Loop Pattern
+    for (int i = idx; i < numBodies; i += stride) {
+    tMinX = fminf(tMinX, posX[i]);
+    // ... ostale koordinate
+    }
+4. Parallel Reduction (Binarna Redukcija)
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+        sMinX[tid] = fminf(sMinX[tid], sMinX[tid + s]);
+        // ... ostale koordinate
+    }
+    __syncthreads();
+    }
+5.  Globalna Atomska Redukcija
+    if (tid == 0) {
+    atomicMin((int*)minX, __float_as_int(sMinX[0]));
+    // ...
+    }
+
+KERNEL 2:
+- Koncept oktanta: Prostor se deli na 8 podregija koristeći srednju tačku (midpoint). 
+Svaki oktant se identifikuje 3-bitnim brojem: 0->X, 1->Y, 2->z
+- Single threaded pristup za buildOctreeSimpleKernel.
+- Nema paralelizacije
+- Dubina stabla ogranicena na 20 nivoa
+- Nema računanja centra mase
+
+GRADJENJE OCT TREE:
+1. Inicijalizacija
+2. Ucitavanje pozicija
+3. Traversal kroz niz stablo (ograniceno na 20 nivoa dubine)
+4. Racunanje srednje tacke 
+ Tri scenarija:
+    1. Prazan oktant -> direktno ga smjesti, node->children[octant] = bodyIdx;
+    2. Oktant zauzet (childIdx < numBodies) -> int newIdx = numBodies + atomicAdd(nodeCounter, 1);
+        relokacija starog: int oldOct = getOctant(oldPx, oldPy, oldPz, newMidX, newMidY, newMidZ);
+                           newNode->children[oldOct] = childIdx;
+    3. Oktant ima unutrasnji node (childIdx >= numBodies) -> nastavi silazak, nodeIdx = childIdx;
+
+KERNEL 3:
+- Bottom-up traversal oktree
+- Bottom-up pristup prirodno rešava problem zavisnosti -> nijedan node se ne procesira dok sva njegova deca nisu gotova (garantovano reverse iteracijom)
+- Thread Independence: Različiti thread-ovi procesiraju različite node-ove, tako da nema data race-ova
+- Strategija: Reverse Order Processing: for (int i = totalNodes - 1 - idx; i >= 0; i -= stride)
+- Thread Mapping i Grid-Stride Pattern: int idx = blockIdx.x * blockDim.x + threadIdx.x; int stride = blockDim.x * gridDim.x;
+- Filtriranje Unutrašnjih Node-ova: if (i >= numBodies) {
+- Bottleneck: Globalna memorija, ali mali broj pristupa po node-u
+
+FAZE:
+1. Inicijalizacija
+    float totalMass = 0.0f;
+    float comX = 0.0f, comY = 0.0f, comZ = 0.0f;
+2. Iteracija kroz oktante:
+    for (int k = 0; k < 8; k++) {
+    int childIdx = node->children[k];
+    if (childIdx >= 0) {
+3. Dvije vrste djece (childIdx < numBodies)
+    1. Dijete je direktno tijelo
+        float m = bodyMass[childIdx];
+        totalMass += m;
+        comX += bodyPosX[childIdx] * m;
+    2. Unutrašnji node (childIdx >= numBodies)
+        OctreeNode *child = &nodes[childIdx];
+        float m = child->mass;
+        comX += child->comX * m;
+    3. Finalno Računanje Centra Mase
+        if (totalMass > 0.0f) {
+        float invMass = 1.0f / totalMass;
+        node->comX = comX * invMass;
+        node->comY = comY * invMass;
+        node->comZ = comZ * invMass;
+        }
+        node->mass = totalMass;
+
+KERNEL 4:
+- Barnes-hut force calculation
+- Svaki thread procesira jedno telo nezavisno. Thread-ovi izvan opsega se odmah prekidaju.
+- Iterativni pristup umesto rekurzije: Koristi se lokalni stack fiksne veličine jer CUDA ne podržava efikasnu rekurziju. Stack čuva indekse node-ova koje treba posetiti.
+- Thread Mapping i Inicijalizacija:
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numBodies) return;
+- Stack-Based Tree Traversal:
+    int stack[64];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0;  // Počni od root node-a
+- Glavna Traversal Loop:
+    while (stackPtr > 0) {
+    int nodeIdx = stack[--stackPtr];  // Pop sa stack-a
+    const OctreeNode *node = &nodes[nodeIdx];
+
+FAZE:
+1. Provjera Mase i Računanje Distance
+    if (node->mass <= 0.0f) continue;  // Preskoči prazne node-ove
+        loat dx = node->comX - px;
+        float dy = node->comY - py;
+        float dz = node->comZ - pz;
+        float distSq = dx*dx + dy*dy + dz*dz + SOFTENING*SOFTENING;
+2. Barnes-Hut Theta Criterion
+    float width = node->maxX - node->minX;
+    bool farEnough = (width / (dist + EPSILON)) < theta;
+3. Self-Interaction Check (ne racuna samog sebe)
+4. Odluka - Aproksimacija ili Spuštanje
+5. Racunanje gravitacione sile koristeci inverzni korijen
+    float invDist = rsqrtf(distSq);
+    float invDist3 = invDist * invDist * invDist;
+    float f = G_CONST * node->mass * invDist3;
+6. Čuvanje Rezultata
+
+KERNEL 5
+- implementira numeričku integraciju za ažuriranje pozicija i brzina
+- Primjeni sile i pomjeri tela
+- Koristi se semi-implicit Euler (Euler-Cromer) metoda za vremenski korak.
+    velX[i] += accX[i] * dt;      // Prvo ažuriraj brzinu
+    posX[i] += velX[i] * dt; 
+- One body per thread!
+- Svaki thread ažurira jedan body nezavisno
+
+MORTON KERNEL:
+- generiše Morton kodove (Z-order curve kodove) za svako tijelo u simulaciji, mapiranjem 3D pozicija u 1D integere
+- Space-Filling Curve: Z-order kriva (Morton kriva) je space-filling curve koja mapira višedimenzionalni prostor u jednodimenzionalni niz
+1. Računanje Morton Koda
+    mortonCodes[i] = morton3D(posX[i], posY[i], posZ[i],
+                           minX, minY, minZ, maxX, maxY, maxZ);
+2. Bit Interleaving: Kombinuje bite tri koordinata alterniranjem
+    1. Bit Manipulation Tehnika
+    funckije: expandBits, morton3D  
+
+
+
