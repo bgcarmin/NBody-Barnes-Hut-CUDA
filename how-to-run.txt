@@ -1,0 +1,2 @@
+Sa vizualizacijom: nvcc -o nbody_viz nbody_cuda_barneshut_viz.cu -arch=sm_75 -O3 -std=c++17 -lfreeglut -lglew32 -lopengl32 -lglu32
+Bez vizualizacije: nvcc -o nbody_bh.exe nbody_cuda_barneshut.cu -arch=sm_75 -O3 -std=c++17
