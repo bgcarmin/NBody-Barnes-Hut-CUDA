@@ -355,6 +355,31 @@ void display()
     glutPostRedisplay();
 }
 
+void cleanup()
+{
+    // Oslobađanje CUDA resursa (grafika)
+    cudaGraphicsUnregisterResource(res_pos);
+    cudaGraphicsUnregisterResource(res_col);
+
+    // Oslobađanje memorije na GPU (ono što smo radili sa cudaMalloc)
+    cudaFree(d_posX);
+    cudaFree(d_posY);
+    cudaFree(d_posZ);
+    cudaFree(d_velX);
+    cudaFree(d_velY);
+    cudaFree(d_velZ);
+    cudaFree(d_accX);
+    cudaFree(d_accY);
+    cudaFree(d_accZ);
+    cudaFree(d_mass);
+    cudaFree(d_nodes);
+    cudaFree(d_nodeCounter);
+    cudaFree(d_leafNodeIdx);
+    cudaFree(d_bounds);
+    cudaFree(d_mortonCodes);
+    cudaFree(d_indices);
+}
+
 int main(int argc, char **argv)
 {
     glutInit(&argc, argv);
@@ -448,6 +473,7 @@ int main(int argc, char **argv)
         gluPerspective(45, (float)w/h, 10.0f, 1000000.0f); glMatrixMode(GL_MODELVIEW); });
 
     glEnable(GL_DEPTH_TEST);
+    glutCloseFunc(cleanup);
     glutMainLoop();
     return 0;
 }
