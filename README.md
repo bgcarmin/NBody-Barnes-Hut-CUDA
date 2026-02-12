@@ -84,9 +84,3 @@ $$F = \frac{G \cdot m_1 \cdot m_2}{(r^2 + \text{SOFTENING})^{3/2}} \cdot \vec{r}
 - NVIDIA GPU with compute capability ≥ 7.5 (Tesla V100, RTX series, etc.)
 - CUDA Toolkit 11.0+
 - For visualization: OpenGL 3.3+, GLEW, FreeGLUT
-
-## Todo/Improvements
-
-- [ ] Parallelize octree construction
-- [ ] Parallelize bounding box computation with parallel reduction
-- [ ] Make max tree depth dynamic instead of fixed
