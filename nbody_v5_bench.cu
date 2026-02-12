@@ -39,10 +39,6 @@ OctreeNode *d_nodes;
 int *d_nodeCounter, *d_leafNodeIdx;
 float *d_bounds;
 
-// ============================================================================
-// KERNELI (Nepromijenjeni)
-// ============================================================================
-
 __device__ unsigned int expandBits(unsigned int v)
 {
     v = (v * 0x00010001u) & 0xFF0000FFu;
@@ -295,7 +291,6 @@ int main()
     float *h_vx = new float[N], *h_vy = new float[N], *h_vz = new float[N];
     float *h_m = new float[N];
 
-    // Inicijalizacija čestica (Ista kao u tvom kodu)
     srand(42);
     for (int i = 0; i < N; i++)
     {
